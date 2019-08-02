@@ -23,7 +23,7 @@ local hookfunction = hookfunction or detour_function
 local newcclosure = newcclosure or protect_function or function(...)
     return ...
 end
-local game, typeof, setreadonly, getmetatable, setmetatable, pcall, tostring, remove, next, setclipboard, warn = game, typeof, setreadonly or set_readonly, debug.getmetatable or getrawmetatable, debug.setmetatable or setrawmetatable, pcall, tostring, table.remove, next, setclipboard, warn
+local game, getfenv, script, typeof, setreadonly, getmetatable, setmetatable, pcall, tostring, remove, next, setclipboard, warn = game, getfenv, script, typeof, setreadonly or set_readonly, debug.getmetatable or getrawmetatable, debug.setmetatable or setrawmetatable, pcall, tostring, table.remove, next, setclipboard, warn
 local Methods = {
     RemoteEvent = "FireServer",
     RemoteFunction = "InvokeServer"
@@ -70,34 +70,20 @@ local Write = function(Remote, Arguments)
 end
 do
     local original_function = tostring
-	local new_function = newcclosure(function(...)
-		local Metatable, __tostring = (...) and getmetatable(...)
-		if Metatable and Metatable.__tostring then
+	local new_function = newcclosure(function(obj)
+		local Metatable, __tostring = obj and getmetatable(obj)
+		if Metatable ~= metatable and Metatable.__tostring and getfenv(2).script == script then
 			__tostring = Metatable.__tostring
 			setreadonly(Metatable, false)
 			Metatable.__tostring = nil
 		end
-        local Success, Result = pcall(original_function, Original[...] or ...)
+        local Success, Result = pcall(original_function, Original[obj] or obj)
 		if Success then
 			if __tostring then
 				Metatable.__tostring = __tostring
 				setreadonly(Metatable, Metatable.__metatable ~= nil)
 			end
             return Result
-        else
-            error(Result:gsub(script.Name .. ":%d+: ", ""))
-        end
-    end)
-    Original[new_function] = original_function
-    original_function = hookfunction(original_function, new_function, true)
-end
-do
-    local original_function = rawequal
-    local new_function = newcclosure(function(...)
-        local obj1, obj2 = ...
-        local Success, Result = pcall(original_function, ...)
-        if Success then
-            return Result or (original_function(obj1,  Original[obj2]) or original_function(obj2, Original[obj1]))
         else
             error(Result:gsub(script.Name .. ":%d+: ", ""))
         end
