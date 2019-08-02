@@ -71,9 +71,9 @@ end
 do
     local original_function = tostring
 	local new_function = newcclosure(function(obj)
-		local Metatable, __tostring = obj and getmetatable(obj)
-		if Metatable ~= metatable and Metatable.__tostring and getfenv(2).script == script then
-			__tostring = Metatable.__tostring
+        local Metatable, __tostring = obj and getmetatable(obj)
+        if Metatable and Metatable ~= metatable and getfenv(2).script == script then
+            __tostring = Metatable.__tostring
 			setreadonly(Metatable, false)
 			Metatable.__tostring = nil
 		end
@@ -96,7 +96,7 @@ do
     local new_function = newcclosure(function(self, ...)
         local Arguments = {...}
         local Method = (LuaU and getnamecallmethod() or remove(Arguments))
-        if typeof(Method == "string") and Methods[metatable.__index(self, "ClassName")] == Method and not Settings.RemoteBlacklist[metatable.__index(self, "Name")] then
+        if typeof(Method) == "string" and Methods[metatable.__index(self, "ClassName")] == Method and not Settings.RemoteBlacklist[metatable.__index(self, "Name")] then
             Write(self, Arguments)
         end
         return original_function(self, ...);
