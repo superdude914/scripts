@@ -121,7 +121,7 @@ for Index, Button in next, UI:GetChildren() do
 					.5,
 					-3
 				)
-				Button.Value.Text = math.clamp(math.floor(MaxValue * Slider.Position.X.Scale), 1, 99)
+				Button.Value.Text = math.clamp(math.floor(MaxValue * Slider.Position.X.Scale), 0, MaxValue)
 				Services.RunService.RenderStepped:Wait()
 			end
 		end)
