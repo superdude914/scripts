@@ -1,9 +1,6 @@
 --// Written by chaserks (chaserks @ v3rmillion.net, chaserks#3441 @ Discord)
 --// Lua U compatible Remote Spy (Also works on non-Lua U games)
---// Requires getnamecallmethod (When used on a Lua U game), hookfunction / detour_function, getrawmetatable, setclipboard (When used with the SetToClipboard setting enabled)
---// LATEST UPDATE: Offers detection protection against tostring and rawequal (You will not be able to detect FireServer & InvokeServer spoofs with these functions anymore)
- 
---// This script has a high chance of not functioning on the ProtoSmasher exploit software
+--// Required functions to run this script: getrawmetatable, hookfunction / detour_function / replace_closure, getnamecallmethod
 --// If you need assistance with anything related to this script then go ahead and message me on Discord, I'll be glad to help if you're a willing learner
 
 _G.Settings = {
@@ -14,26 +11,36 @@ _G.Settings = {
 }
  
 local metatable = getrawmetatable(game)
-local LuaU = select(2, pcall(game)) == "attempt to call a userdata value"
-print("Lua U Enabled:", LuaU)
-local getnamecallmethod = getnamecallmethod or function()
-    return "FireServer"
-end
-local hookfunction = hookfunction or detour_function
-local newcclosure = newcclosure or protect_function or function(...)
-    return ...
-end
-local game, getfenv, script, typeof, setreadonly, getmetatable, setmetatable, pcall, tostring, remove, next, setclipboard, warn = game, getfenv, script, typeof, setreadonly or set_readonly, debug.getmetatable or getrawmetatable, debug.setmetatable or setrawmetatable, pcall, tostring, table.remove, next, setclipboard, warn
+local LuaUEnabled = select(2, pcall(game)) == "attempt to call a userdata value"
+
+local Original = {}
+local Settings = _G.Settings
 local Methods = {
     RemoteEvent = "FireServer",
     RemoteFunction = "InvokeServer"
 }
-local Original = {}
-local Settings = _G.Settings
+
+local getnamecallmethod, newcclosure, hookfunction = getnamecallmethod or function(obj)
+    local Method = obj and Methods[obj.ClassName]
+    if Method then
+        return Method
+    else
+        for idx, cnst in next, debug.getstack(2) do
+            local Method = typeof(cnst) == "Instance" and Methods[cnst.ClassName]
+            if Method then
+                return Method
+            end
+        end
+    end
+end, newcclosure or protect_function or function(...)
+    return ...
+end, hookfunction or replace_closure or detour_function
+
 local GetInstanceName = function(Object)
     local Name = metatable.__index(Object, "Name")
     return ((#Name == 0 or Name:match("[^%w]+") or Name:sub(1, 1):match("[^%a]")) and "[\"%s\"]" or ".%s"):format(Name)
 end
+
 local function Parse(Object)
     local Type = (typeof or type)(Object);
     if Type == "string" then
@@ -63,15 +70,17 @@ local function Parse(Object)
         return tostring(Object)
     end
 end
+
 local Write = function(Remote, Arguments)
     local Stuff = ("%s:%s(unpack%s)"):format(Parse(Remote), Methods[metatable.__index(Remote, "ClassName")], Parse(Arguments))
     warn(Stuff)
     local _ = Settings.SetToClipboard and setclipboard(Stuff)
 end
+
 do
     local original_function = tostring
 	local new_function = newcclosure(function(obj)
-        local Metatable, __tostring = obj and getmetatable(obj)
+        local Metatable, __tostring = obj and getrawmetatable(obj)
         if Metatable and Metatable ~= metatable and getfenv(2).script == script then
             __tostring = Metatable.__tostring
 			setreadonly(Metatable, false)
@@ -89,21 +98,9 @@ do
         end
     end)
     Original[new_function] = original_function
-    original_function = hookfunction(original_function, new_function, true)
+    original_function = hookfunction(original_function, new_function)
 end
-do
-    local original_function = metatable.__namecall
-    local new_function = newcclosure(function(self, ...)
-        local Arguments = {...}
-        local Method = (LuaU and getnamecallmethod() or remove(Arguments))
-        if typeof(Method) == "string" and Methods[metatable.__index(self, "ClassName")] == Method and not Settings.RemoteBlacklist[metatable.__index(self, "Name")] then
-            Write(self, Arguments)
-        end
-        return original_function(self, ...);
-    end)
-    Original[new_function] = original_function
-    original_function = hookfunction(original_function, new_function, true)
-end
+
 for Class, Method in next, Methods do
     local original_function = Instance.new(Class)[Method]
     local new_function = newcclosure(function(self, ...)
@@ -113,5 +110,23 @@ for Class, Method in next, Methods do
         return original_function(self, ...)
     end)
     Original[new_function] = original_function
-    original_function = hookfunction(original_function, new_function, true)
+    original_function = hookfunction(original_function, new_function)
 end
+
+do
+    local original_function = metatable.__namecall
+    local new_function = newcclosure(function(self, ...)
+        local Arguments = {...}
+        local Method = (LuaUEnabled and getnamecallmethod(self) or table.remove(Arguments))
+        if typeof(Method) == "string" and Methods[metatable.__index(self, "ClassName")] == Method and not Settings.RemoteBlacklist[metatable.__index(self, "Name")] then
+            Write(self, Arguments)
+        end
+        return original_function(self, ...);
+    end)
+    Original[new_function] = original_function
+    setreadonly(metatable, false)
+    metatable.__namecall = new_function
+    setreadonly(metatable, true)
+end
+
+print("Lua U Enabled:", LuaUEnabled)
