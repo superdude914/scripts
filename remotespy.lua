@@ -24,13 +24,6 @@ local getnamecallmethod, newcclosure, hookfunction = getnamecallmethod or functi
     local Method = obj and Methods[obj.ClassName]
     if Method then
         return Method
-    else
-        for idx, cnst in next, debug.getstack(2) do
-            local Method = typeof(cnst) == "Instance" and Methods[cnst.ClassName]
-            if Method then
-                return Method
-            end
-        end
     end
 end, newcclosure or protect_function or function(...)
     return ...
