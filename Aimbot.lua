@@ -115,8 +115,8 @@ for Index, Button in next, UI:GetChildren() do
 		end
 	elseif Button:FindFirstChild("Slide") then
 		local Slider = Button.Slide.Slider
+		local MaxValue = tonumber(Button.Value.Text)
 		Slider.MouseButton1Down:Connect(function()
-			local MaxValue = tonumber(Button.Value.Text) / Slider.Position.X.Scale
 			while Services.UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1) do
 				local Mouse = Services.UserInputService:GetMouseLocation()
 				Slider.Position = UDim2.new(
@@ -125,7 +125,7 @@ for Index, Button in next, UI:GetChildren() do
 					.5,
 					-3
 				)
-				Button.Value.Text = math.clamp(math.floor(MaxValue * Slider.Position.X.Scale), 0, MaxValue)
+				Button.Value.Text = math.floor(math.clamp(MaxValue * Slider.Position.X.Scale, 0, MaxValue))	
 				Services.RunService.RenderStepped:Wait()
 			end
 		end)
