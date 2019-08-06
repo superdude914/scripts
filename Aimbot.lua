@@ -1,7 +1,11 @@
 local UI = game:GetObjects("rbxassetid://2989692423")[1]
 local Services = setmetatable(game:GetChildren(), {
-	__index = function(self, Service)
-		return game:GetService(Service)
+	__index = function(self, ServiceName)
+		local Valid, Service = pcall(game.GetService, game, ServiceName)
+		if Valid then
+			self[ServiceName] = Service
+			return Service
+		end
 	end
 })
 local Me = Services.Players.LocalPlayer
