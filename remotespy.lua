@@ -7,7 +7,8 @@ _G.Settings = {
     SetToClipboard = false, --// Set remote calls to clipboard as code
     RemoteBlacklist = { --// Ignore remote calls made with these remotes
         CharacterSoundEvent = true,
-    }
+    },
+    ShowCaller = true --// Print out the script that made the remote call
 }
  
 local metatable = getrawmetatable(game)
@@ -60,7 +61,7 @@ local function Parse(Object)
         end
         return ("{%s}"):format(Str:sub(1, -3))
     elseif Type == "CFrame" or Type == "Vector3" or Type == "Vector2" or Type == "UDim2" or Type == "Color3" or Type == "Vector3int16" then
-        return ("%s.new(%s)"):format(Type, tostring(Object))
+        return ("%s.%s(%s)"):format(Type, Type == "Color3" and "fromRGB" or "new", tostring(Object))
     else
         return tostring(Object)
     end
@@ -70,6 +71,10 @@ local Write = function(Remote, Arguments)
     local Stuff = ("%s:%s(unpack%s)"):format(Parse(Remote), Methods[metatable.__index(Remote, "ClassName")], Parse(Arguments))
     warn(Stuff)
     local _ = Settings.SetToClipboard and setclipboard(Stuff)
+    local Script = Settings.ShowCaller and getfenv(3).script
+    if typeof(Script) == "Instance" then
+        warn(("Script: %s"):format(Parse(Script)))
+    end
 end
 
 do
@@ -125,3 +130,6 @@ do
 end
 
 print("Lua U Enabled:", LuaUEnabled)
+warn("Settings:")
+table.foreach(Settings, print)
+warn("----------------")
