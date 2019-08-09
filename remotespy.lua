@@ -70,7 +70,7 @@ end
 local Write = function(Remote, Arguments)
     local Stuff = ("%s:%s(unpack%s)"):format(Parse(Remote), Methods[metatable.__index(Remote, "ClassName")], Parse(Arguments))
     warn(Stuff)
-    local _ = Settings.SetToClipboard and setclipboard(Stuff)
+    local _ = Settings.SetToClipboard and pcall(setclipboard, Stuff)
     local Script = Settings.ShowCaller and getfenv(3).script
     if typeof(Script) == "Instance" then
         warn(("Script: %s"):format(Parse(Script)))
