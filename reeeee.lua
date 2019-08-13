@@ -322,7 +322,7 @@ local Client = Services.Players.LocalPlayer
 if Game == "Apocalypse Rising 2" then
     local Framework = Scripts:findFunctionInfo(getrenv()._G.ClientFramework).upvalues.api
     local Networking = Services.ReplicatedStorage:WaitForChild("Networking")
-    Network:WaitForChild("Intercom"):Destroy()
+    Networking:WaitForChild("Intercom"):Destroy()
     Instance.new("RemoteEvent", Networking).Name = "Intercom"
     for func, info in next, Scripts:findFunctionsForScript(Scripts:findScriptWithName("Characters")) do
         local characterStep = info.upvalues.characterStep
