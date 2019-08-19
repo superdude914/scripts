@@ -3,8 +3,7 @@
 --// Custom functions required: getrawmetatable, hookfunction, setreadonly (or variants of these)
 --// Not required, but works best with: setclipboard, getnamecallmethod, newcclosure (or variants of these)
 --// Remote calls, by default, will be outputted to the dev console (F9), you can change this
---// Will probably crash on ProtoSmasher, that ain't my fault.
---// (Although I made sure if it miraculously doesn't then it will support it nonetheless)
+--// Do not use ShowScript with ProtoSmasher, I think getfenv doesn't work properly on it
 
 _G.Settings = {
 	Enabled = true, --//
@@ -12,7 +11,7 @@ _G.Settings = {
     Blacklist = { --// Ignore remote calls made with these remotes
         CharacterSoundEvent = true,
     },
-    ShowScript = true, --// Print out the script that made the remote call
+    ShowScript = not IS_PROTOSMASHER_LOADED, --// Print out the script that made the remote call
     Output = warn --// Function used to output remote calls
 }
 
@@ -31,6 +30,15 @@ local newcclosure = newcclosure or protect_function or function(...)
 	return ...
 end
 
+--// Localize
+local getfenv = getfenv
+local typeof = typeof or type
+local pcall = pcall
+local select = select
+local rawget = rawget
+
+--// \\--
+
 local Original = {}
 local Settings = _G.Settings
 local Methods = {
@@ -44,7 +52,7 @@ local GetInstanceName = function(Object) --// Returns proper string wrapping for
 end
 
 local function Parse(Object) --// Convert the types into strings
-    local Type = (typeof or type)(Object);
+    local Type = typeof(Object)
     if Type == "string" then
         return ("\"%s\""):format(Object)
     elseif Type == "Instance" then --// Instance:GetFullName() except it's not handicapped
@@ -84,56 +92,61 @@ local function Parse(Object) --// Convert the types into strings
             Result = tostring(Object)
         end
         return Result
+	else
+		return tostring(Object)
     end
 end
 
 local Write = function(Remote, Arguments) --// Remote (Instance), Arguments (Table)
-    local Stuff = ("%s:%s(%s)"):format(Parse(Remote), Methods[metatable.__index(Remote, "ClassName")], #Arguments > 0 and ("unpack%s"):format(Parse(Arguments)) or "")
+    local Stuff = ("%s:%s(%s)"):format(Parse(Remote), Methods[metatable.__index(Remote, "ClassName")], Parse(Arguments):sub(2, -2))
     Settings.Output(Stuff) --// Output the remote call
     local _ = Settings.Copy and pcall(setclipboard, Stuff)
-    local Script = Settings.ShowScript and rawget(getfenv(3), "script")
-    if typeof(Script) == "Instance" then
-        Settings.Output(("Script: %s"):format(Parse(Script)))
+    if Settings.ShowScript then
+		local Env = getfenv(3) --// ProtoSmasher HATES this line
+		local Script = rawget(Env, "script") --// ): bad
+		if typeof(Script) == "Instance" then --// If you know a better way to do this garbage please tell me
+        	Settings.Output(("Script: %s"):format(Parse(Script)))
+		end
     end
 end
 
 do --// Anti detection for tostring ( tostring(FireServer, InvokeServer) )
-    local original_function = tostring
+    local ORIG = tostring
 	local new_function = newcclosure(function(obj)
-        local Success, Result = pcall(original_function, Original[obj] or obj)
+        local Success, Result = pcall(ORIG or original_function, Original[obj] or obj)
 		if Success then
             return Result
         else
             error(Result:gsub(script.Name .. ":%d+: ", ""))
         end
     end)
-    Original[new_function] = original_function
-    original_function = hookfunction(original_function, new_function)
+    Original[new_function] = ORIG
+    ORIG = hookfunction(ORIG, new_function)
 end
 
 for Class, Method in next, Methods do --// FireServer and InvokeServer hooking ( FireServer(Remote, ...) )
-    local original_function = Instance.new(Class)[Method]
+    local ORIG = Instance.new(Class)[Method]
     local new_function = newcclosure(function(self, ...)
         if typeof(self) == "Instance" and Methods[self.ClassName] == Method and not Settings.Blacklist[self.Name] and Settings.Enabled then
             Write(self, {...})
         end
-        return original_function(self, ...)
+        return (ORIG or original_function)(self, ...);
     end)
-    Original[new_function] = original_function
-    original_function = hookfunction(original_function, new_function)
+    Original[new_function] = ORIG
+    ORIG = hookfunction(ORIG, new_function)
 end
 
 do --// Namecall hooking ( Remote:FireServer(...) )
-    local original_function = metatable.__namecall
+    local ORIG = metatable.__namecall
     local new_function = newcclosure(function(self, ...)
         local Arguments = {...}
         local Method = IsLuau and getnamecallmethod(self) or table.remove(Arguments)
         if typeof(Method) == "string" and Methods[self.ClassName] == Method and not Settings.Blacklist[self.Name] and Settings.Enabled then
             Write(self, Arguments)
         end
-        return original_function(self, ...);
+        return (ORIG or original_function)(self, ...);
     end)
-    Original[new_function] = original_function
+    Original[new_function] = ORIG
     setreadonly(metatable, false)
     metatable.__namecall = new_function
     setreadonly(metatable, true)
