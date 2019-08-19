@@ -1,134 +1,145 @@
---// Written by chaserks (chaserks @ v3rmillion.net, chaserks#3441 @ Discord)
 --// Lua U compatible Remote Spy (Also works on non-Lua U games)
---// Required functions to run this script: getrawmetatable, hookfunction / detour_function / replace_closure, getnamecallmethod
---// If you need assistance with anything related to this script then go ahead and message me on Discord, I'll be glad to help if you're a willing learner
+--// Written by chaserks (chaserks @ v3rmillion.net, superdude914#3441 @ Discord)
+--// Custom functions required: getrawmetatable, hookfunction, setreadonly (or variants of these)
+--// Not required, but works best with: setclipboard, getnamecallmethod, newcclosure (or variants of these)
+--// Remote calls, by default, will be outputted to the dev console (F9), you can change this
+--// Will probably crash on ProtoSmasher, that ain't my fault.
+--// (Although I made sure if it miraculously doesn't then it will support it nonetheless)
 
 _G.Settings = {
-  SetToClipboard = false, --// Set remote calls to clipboard as code
-  RemoteBlacklist = { --// Ignore remote calls made with these remotes
-      CharacterSoundEvent = true,
-  },
-  ShowCaller = true, --// Print out the script that made the remote call
-	Output = warn --// Output the remote calls with this function
+	Enabled = true, --//
+    Copy = false, --// Set remote calls to clipboard as code
+    Blacklist = { --// Ignore remote calls made with these remotes
+        CharacterSoundEvent = true,
+    },
+    ShowScript = true, --// Print out the script that made the remote call
+    Output = warn --// Function used to output remote calls
 }
 
 local metatable = getrawmetatable(game)
-local LuaUEnabled = select(2, pcall(game)) == "attempt to call a userdata value"
+local IsLuau = select(2, pcall(game)) == "attempt to call a userdata value"
 
-local select, pcall, rawget, getrawmetatable, setclipboard, typeof = select, pcall, rawget, getrawmetatable, setclipboard, typeof
+--// Custom functions aliases
+local setreadonly = setreadonly or set_readonly or make_writeable
+local getrawmetatable = getrawmetatable or debug.getmetatable
+local hookfunction = hookfunction or replace_closure or detour_function
+local setclipboard = setclipboard or set_clipboard or writeclipboard
+local getnamecallmethod = getnamecallmethod or function(o)
+	return typeof(o) == "Instance" and Methods[o.ClassName]
+end
+local newcclosure = newcclosure or protect_function or function(...)
+	return ...
+end
+
 local Original = {}
 local Settings = _G.Settings
 local Methods = {
-  RemoteEvent = "FireServer",
-  RemoteFunction = "InvokeServer"
+    RemoteEvent = "FireServer",
+    RemoteFunction = "InvokeServer"
 }
 
-local getnamecallmethod, newcclosure, hookfunction = getnamecallmethod or function(obj)
-	local Method = obj and Methods[obj.ClassName]
-	if Method then
-		return Method
-	end
-end, newcclosure or protect_function or function(...)
-	return ...
-end, hookfunction or replace_closure or detour_function
-
-local GetInstanceName = function(Object)
-	local Name = metatable.__index(Object, "Name")
-	return ((#Name == 0 or Name:match("[^%w]+") or Name:sub(1, 1):match("[^%a]")) and "[\"%s\"]" or ".%s"):format(Name)
+local GetInstanceName = function(Object) --// Returns proper string wrapping for instances
+    local Name = metatable.__index(Object, "Name")
+    return ((#Name == 0 or Name:match("[^%w]+") or Name:sub(1, 1):match("[^%a]")) and "[\"%s\"]" or ".%s"):format(Name)
 end
 
-local function Parse(Object)
-	local Type = (typeof or type)(Object);
-	if Type == "string" then
-		return ("\"%s\""):format(Object)
-  elseif Type == "Instance" then
-		local Path = GetInstanceName(Object)
-		local Parent = metatable.__index(Object, "Parent")
-		while Parent and Parent ~= game do
-			Path = GetInstanceName(Parent) .. Path
-			Parent = metatable.__index(Parent, "Parent")
-		end
-		return (Object:IsDescendantOf(game) and "game" or "NIL") .. Path
-	elseif Type == "table" then
-		local Str = ""
-		local Counter = 0
-		for Idx, Obj in next, Object do
-			Counter = Counter + 1
-			local Obj = Obj ~= Object and Parse(Obj) or "THIS_TABLE"
-			if Counter ~= Idx then
-				Str = Str .. ("[%s] = %s, "):format(Idx ~= Object and Parse(Idx) or "THIS_TABLE", Obj) --maybe
-			else
-				Str = Str .. ("%s, "):format(Obj)
-			end
-		end
-		return ("{%s}"):format(Str:sub(1, -3))
-	elseif Type == "CFrame" or Type == "Vector3" or Type == "Vector2" or Type == "UDim2" or Type == "Color3" or Type == "Vector3int16" then
-		return ("%s.%s(%s)"):format(Type, Type == "Color3" and "fromRGB" or "new", tostring(Object))
-	else
-		return tostring(Object)
-  end
+local function Parse(Object) --// Convert the types into strings
+    local Type = (typeof or type)(Object);
+    if Type == "string" then
+        return ("\"%s\""):format(Object)
+    elseif Type == "Instance" then --// Instance:GetFullName() except it's not handicapped
+        local Path = GetInstanceName(Object)
+        local Parent = metatable.__index(Object, "Parent")
+        while Parent and Parent ~= game do
+            Path = GetInstanceName(Parent) .. Path
+            Parent = metatable.__index(Parent, "Parent")
+        end
+        return (Object:IsDescendantOf(game) and "game" or "NIL") .. Path
+    elseif Type == "table" then
+        local Str = ""
+        local Counter = 0
+        for Idx, Obj in next, Object do
+            Counter = Counter + 1
+            local Obj = Obj ~= Object and Parse(Obj) or "THIS_TABLE"
+            if Counter ~= Idx then
+                Str = Str .. ("[%s] = %s, "):format(Idx ~= Object and Parse(Idx) or "THIS_TABLE", Obj) --maybe
+            else
+                Str = Str .. ("%s, "):format(Obj)
+            end
+        end
+        return ("{%s}"):format(Str:sub(1, -3))
+    elseif Type == "CFrame" or Type == "Vector3" or Type == "Vector2" or Type == "UDim2" or Type == "Color3" or Type == "Vector3int16" then
+        return ("%s.%s(%s)"):format(Type, Type == "Color3" and "fromRGB" or "new", tostring(Object))
+    elseif Type == "userdata" then --// Remove __tostring fields to counter traps
+        local Result
+        local Metatable = getrawmetatable(Object)
+        local __tostring = Metatable and Metatable.__tostring
+        if __tostring then
+            setreadonly(Metatable, false)
+            Metatable.__tostring = nil
+            Result = tostring(Object)
+            rawset(Metatable, "__tostring", __tostring)
+            setreadonly(Metatable, rawget(Metatable, "__metatable") ~= nil)
+        else
+            Result = tostring(Object)
+        end
+        return Result
+    end
 end
 
-local Write = function(Remote, Arguments)
-  local Stuff = ("%s:%s(unpack%s)"):format(Parse(Remote), Methods[metatable.__index(Remote, "ClassName")], Parse(Arguments))
-  Settings.Output(Stuff)
-  local _ = Settings.SetToClipboard and select(2, pcall(setclipboard, Stuff))
-  local Script = Settings.ShowCaller and getfenv(3).script
-  if typeof(Script) == "Instance" then
-      Settings.Output(("Script: %s"):format(Parse(Script)))
-  end
+local Write = function(Remote, Arguments) --// Remote (Instance), Arguments (Table)
+    local Stuff = ("%s:%s(%s)"):format(Parse(Remote), Methods[metatable.__index(Remote, "ClassName")], #Arguments > 0 and ("unpack%s"):format(Parse(Arguments)) or "")
+    Settings.Output(Stuff) --// Output the remote call
+    local _ = Settings.Copy and pcall(setclipboard, Stuff)
+    local Script = Settings.ShowScript and rawget(getfenv(3), "script")
+    if typeof(Script) == "Instance" then
+        Settings.Output(("Script: %s"):format(Parse(Script)))
+    end
 end
 
-do
-	local original_function = tostring
+do --// Anti detection for tostring ( tostring(FireServer, InvokeServer) )
+    local original_function = tostring
 	local new_function = newcclosure(function(obj)
-		local Metatable = obj ~= nil and getrawmetatable(obj)
-		local __tostring = Metatable ~= nil and rawget(Metatable, "__tostring")
-		local Success, Result
-		if __tostring and Metatable ~= metatable then
-			setreadonly(Metatable, false)
-			Metatable.__tostring = nil
-			Success, Result = pcall(original_function, Original[obj] or obj)
-			Metatable.__tostring = __tostring
-			setreadonly(Metatable, rawget(Metatable, "__metatable") ~= nil)
-		else
-			Success, Result = pcall(original_function, Original[obj] or obj)
-		end
-		return Success and Result or error(Result:gsub(script.Name .. ":%d+: ", ""))
-	end)
-	Original[new_function] = original_function
-	original_function = hookfunction(original_function, new_function)
+        local Success, Result = pcall(original_function, Original[obj] or obj)
+		if Success then
+            return Result
+        else
+            error(Result:gsub(script.Name .. ":%d+: ", ""))
+        end
+    end)
+    Original[new_function] = original_function
+    original_function = hookfunction(original_function, new_function)
 end
 
-for Class, Method in next, Methods do
-  local original_function = Instance.new(Class)[Method]
-  local new_function = newcclosure(function(self, ...)
-		if typeof(self) == "Instance" and Methods[metatable.__index(self, "ClassName")] == Method and not Settings.RemoteBlacklist[metatable.__index(self, "Name")] then
-			Write(self, {...})
-		end
-		return original_function(self, ...)
-	end)
-	Original[new_function] = original_function
-	original_function = hookfunction(original_function, new_function)
+for Class, Method in next, Methods do --// FireServer and InvokeServer hooking ( FireServer(Remote, ...) )
+    local original_function = Instance.new(Class)[Method]
+    local new_function = newcclosure(function(self, ...)
+        if typeof(self) == "Instance" and Methods[self.ClassName] == Method and not Settings.Blacklist[self.Name] and Settings.Enabled then
+            Write(self, {...})
+        end
+        return original_function(self, ...)
+    end)
+    Original[new_function] = original_function
+    original_function = hookfunction(original_function, new_function)
 end
 
-do
-	local original_function = metatable.__namecall
-	local new_function = newcclosure(function(self, ...)
-		local Arguments = {...}
-		local Method = (LuaUEnabled and getnamecallmethod(self) or table.remove(Arguments))
-		if typeof(Method) == "string" and Methods[metatable.__index(self, "ClassName")] == Method and not Settings.RemoteBlacklist[metatable.__index(self, "Name")] then
-			Write(self, Arguments)
-		end
-		return original_function(self, ...);
-	end)
-	Original[new_function] = original_function
-	setreadonly(metatable, false)
-	metatable.__namecall = new_function
-	setreadonly(metatable, true)
+do --// Namecall hooking ( Remote:FireServer(...) )
+    local original_function = metatable.__namecall
+    local new_function = newcclosure(function(self, ...)
+        local Arguments = {...}
+        local Method = IsLuau and getnamecallmethod(self) or table.remove(Arguments)
+        if typeof(Method) == "string" and Methods[self.ClassName] == Method and not Settings.Blacklist[self.Name] and Settings.Enabled then
+            Write(self, Arguments)
+        end
+        return original_function(self, ...);
+    end)
+    Original[new_function] = original_function
+    setreadonly(metatable, false)
+    metatable.__namecall = new_function
+    setreadonly(metatable, true)
 end
 
-print("Lua U Enabled:", LuaUEnabled)
+print("Lua U Enabled:", IsLuau)
 warn("Settings:")
 table.foreach(Settings, print)
 warn("----------------")
