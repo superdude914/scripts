@@ -121,7 +121,7 @@ do --// Anti detection for tostring ( tostring(FireServer, InvokeServer) )
 		end
 	end)
 	Original[new_function] = ORIG
-	ORIG = hookfunction(ORIG, new_function)
+	ORIG = hookfunction(ORIG, new_function, true)
 end
 
 for Class, Method in next, Methods do --// FireServer and InvokeServer hooking ( FireServer(Remote, ...) )
