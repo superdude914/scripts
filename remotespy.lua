@@ -12,6 +12,7 @@ _G.Settings = {
 		CharacterSoundEvent = true,
 	},
 	ShowScript = PROTOSMASHER_LOADED == nil, --// Print out the script that made the remote call
+	ShowReturns = true, --// Display what the remote calls return
 	Output = warn --// Function used to output remote calls
 }
 
@@ -97,7 +98,7 @@ local function Parse(Object) --// Convert the types into strings
 	end
 end
 
-local Write = function(Remote, Arguments) --// Remote (Instance), Arguments (Table)
+local Write = function(Remote, Arguments, Returns) --// Remote (Instance), Arguments (Table), Returns (Table)
 	local Stuff = ("%s:%s(%s)"):format(Parse(Remote), Methods[metatable.__index(Remote, "ClassName")], Parse(Arguments):sub(2, -2))
 	Settings.Output(Stuff) --// Output the remote call
 	local _ = Settings.Copy and pcall(setclipboard, Stuff)
@@ -107,6 +108,9 @@ local Write = function(Remote, Arguments) --// Remote (Instance), Arguments (Tab
 		if typeof(Script) == "Instance" then
 			Settings.Output(("Script: %s"):format(Parse(Script)))
 		end
+	end
+	if Returns and #Returns > 0 then
+		Settings.Output(("Returned: %s"):format(Parse(Returns):sub(2, -2)))
 	end
 end
 
@@ -127,10 +131,11 @@ end
 for Class, Method in next, Methods do --// FireServer and InvokeServer hooking ( FireServer(Remote, ...) )
 	local ORIG = Instance.new(Class)[Method]
 	local new_function = newcclosure(function(self, ...)
+		local Returns = {(ORIG or original_function)(self, ...)}
 		if typeof(self) == "Instance" and Methods[self.ClassName] == Method and not Settings.Blacklist[self.Name] and Settings.Enabled then
-			Write(self, {...})
+			Write(self, {...}, Settings.ShowReturns and Returns)
 		end
-		return (ORIG or original_function)(self, ...);
+		return unpack(Returns)
 	end)
 	Original[new_function] = ORIG
 	ORIG = hookfunction(ORIG, new_function)
@@ -139,12 +144,13 @@ end
 do --// Namecall hooking ( Remote:FireServer(...) )
 	local ORIG = metatable.__namecall
 	local new_function = newcclosure(function(self, ...)
+		local Returns = {(ORIG or original_function)(self, ...)}
 		local Arguments = {...}
 		local Method = IsLuau and getnamecallmethod(self) or table.remove(Arguments)
 		if typeof(Method) == "string" and Methods[self.ClassName] == Method and not Settings.Blacklist[self.Name] and Settings.Enabled then
-			Write(self, Arguments)
+			Write(self, Arguments, Settings.ShowReturns and Returns)
 		end
-		return (ORIG or original_function)(self, ...);
+		return unpack(Returns)
 	end)
 	Original[new_function] = ORIG
 	setreadonly(metatable, false)
