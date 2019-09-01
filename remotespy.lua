@@ -1,19 +1,19 @@
---// Lua U compatible Remote Spy (Also works on non-Lua U games)
---// Written by chaserks (chaserks @ v3rmillion.net, superdude914#3441 @ Discord)
---// Custom functions required: getrawmetatable, hookfunction, setreadonly (or variants of these)
---// Not required, but works best with: setclipboard, getnamecallmethod, newcclosure (or variants of these)
---// Remote calls, by default, will be outputted to the dev console (F9), you can change this
---// Do not use ShowScript with ProtoSmasher, I think getfenv doesn't work properly on it
+--[[
+	Lua U Remote Spy written by chaserks (chaserks @ v3rmillion.net, superdude914#3441 @ Discord)
+	Exploits supported: Synapse X, ProtoSmasher (Sirhurt?, Elysian?)
+	Remote calls are printed to the dev console by default (F9 window)
+	View line 20 for instructions on how to use the Synapse roblox console
+]]
 
-_G.Settings = {
+_G.Settings = { --// You can change these settings
 	Enabled = true, --// Remote spy is enabled
 	Copy = false, --// Set remote calls to clipboard as code
 	Blacklist = { --// Ignore remote calls made with these remotes
 		CharacterSoundEvent = true,
 	},
-	ShowScript = PROTOSMASHER_LOADED == nil, --// Print out the script that made the remote call
+	ShowScript = true, --// Print out the script that made the remote call (Unfunctional with ProtoSmasher)
 	ShowReturns = true, --// Display what the remote calls return
-	Output = warn --// Function used to output remote calls
+	Output = warn --// Function used to output remote calls (Change to rconsoleprint to use Synapse's console)
 }
 
 local metatable = getrawmetatable(game)
@@ -25,7 +25,7 @@ local getrawmetatable = getrawmetatable or debug.getmetatable
 local hookfunction = hookfunction or replace_closure or detour_function
 local setclipboard = setclipboard or set_clipboard or writeclipboard
 local getnamecallmethod = getnamecallmethod or function(o)
-	return typeof(o) == "Instance" and Methods[o.ClassName]
+	return typeof(o) == "Instance" and Methods[o.ClassName] or nil
 end
 local newcclosure = newcclosure or protect_function or function(...)
 	return ...
@@ -48,7 +48,7 @@ local Methods = {
 }
 
 local GetInstanceName = function(Object) --// Returns proper string wrapping for instances
-	local Name = metatable.__index(Object, "Name")
+	local Name = Object.Name
 	return ((#Name == 0 or Name:match("[^%w]+") or Name:sub(1, 1):match("[^%a]")) and "[\"%s\"]" or ".%s"):format(Name)
 end
 
@@ -99,10 +99,10 @@ local function Parse(Object) --// Convert the types into strings
 end
 
 local Write = function(Remote, Arguments, Returns) --// Remote (Instance), Arguments (Table), Returns (Table)
-	local Stuff = ("%s:%s(%s)"):format(Parse(Remote), Methods[metatable.__index(Remote, "ClassName")], Parse(Arguments):sub(2, -2))
+	local Stuff = ("%s:%s(%s)\r\n"):format(Parse(Remote), Methods[metatable.__index(Remote, "ClassName")], Parse(Arguments):sub(2, -2))
 	Settings.Output(Stuff) --// Output the remote call
 	local _ = Settings.Copy and pcall(setclipboard, Stuff)
-	if Settings.ShowScript then
+	if Settings.ShowScript and not PROTOSMASHER_LOADED then
 		local Env = getfenv(3) --// ProtoSmasher HATES this line (detour_function breaks)
 		local Script = rawget(Env, "script")
 		if typeof(Script) == "Instance" then
