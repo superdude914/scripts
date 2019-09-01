@@ -2,7 +2,7 @@
 	Lua U Remote Spy written by chaserks (chaserks @ v3rmillion.net, superdude914#3441 @ Discord)
 	Exploits supported: Synapse X, ProtoSmasher (Sirhurt?, Elysian?)
 	Remote calls are printed to the dev console by default (F9 window)
-	View line 20 for instructions on how to use the Synapse roblox console
+	To use Synapse's console, change Settings.Output to rconsoleprint
 ]]
 
 _G.Settings = { --// You can change these settings
