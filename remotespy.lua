@@ -24,7 +24,7 @@ local setreadonly = setreadonly or set_readonly or make_writeable
 local getrawmetatable = getrawmetatable or debug.getmetatable
 local hookfunction = hookfunction or replace_closure or detour_function
 local setclipboard = setclipboard or set_clipboard or writeclipboard
-local getnamecallmethod = getnamecallmethod or function(o)
+local getnamecallmethod = getnamecallmethod or get_namecall_method function(o)
 	return typeof(o) == "Instance" and Methods[o.ClassName] or nil
 end
 local newcclosure = newcclosure or protect_function or function(...)
