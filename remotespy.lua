@@ -17,26 +17,17 @@ _G.Settings = { --// You can change these settings
 }
 
 local metatable = getrawmetatable(game)
-local IsLuau = select(2, pcall(game)) == "attempt to call a userdata value"
 
 --// Custom functions aliases
-local setreadonly = setreadonly or set_readonly or make_writeable
-local getrawmetatable = getrawmetatable or debug.getmetatable
-local hookfunction = hookfunction or replace_closure or detour_function
+local make_writeable = make_writeable or setreadonly or set_readonly
+local detour_function = detour_function or replace_closure or hookfunction
 local setclipboard = setclipboard or set_clipboard or writeclipboard
-local getnamecallmethod = getnamecallmethod or get_namecall_method or function(o)
+local get_namecall_method = get_namecall_method or getnamecallmethod or function(o)
 	return typeof(o) == "Instance" and Methods[o.ClassName] or nil
 end
-local newcclosure = newcclosure or protect_function or function(...)
+local protect_function = protect_function or newcclosure or function(...)
 	return ...
 end
-
---// Localize
-local getfenv = getfenv
-local typeof = typeof or type
-local pcall = pcall
-local select = select
-local rawget = rawget
 
 --// \\--
 
@@ -84,11 +75,11 @@ local function Parse(Object) --// Convert the types into strings
 		local Metatable = getrawmetatable(Object)
 		local __tostring = Metatable and Metatable.__tostring
 		if __tostring then
-			setreadonly(Metatable, false)
+			make_writeable(Metatable, false)
 			Metatable.__tostring = nil
 			Result = tostring(Object)
 			rawset(Metatable, "__tostring", __tostring)
-			setreadonly(Metatable, rawget(Metatable, "__metatable") ~= nil)
+			make_writeable(Metatable, rawget(Metatable, "__metatable") ~= nil)
 		else
 			Result = tostring(Object)
 		end
@@ -116,7 +107,7 @@ end
 
 do --// Anti detection for tostring ( tostring(FireServer, InvokeServer) )
 	local ORIG = tostring
-	local new_function = newcclosure(function(obj)
+	local new_function = protect_function(function(obj)
 		local Success, Result = pcall(ORIG or original_function, Original[obj] or obj)
 		if Success then
 			return Result
@@ -125,12 +116,12 @@ do --// Anti detection for tostring ( tostring(FireServer, InvokeServer) )
 		end
 	end)
 	Original[new_function] = ORIG
-	ORIG = hookfunction(ORIG, new_function, true)
+	ORIG = detour_function(ORIG, new_function, true)
 end
 
 for Class, Method in next, Methods do --// FireServer and InvokeServer hooking ( FireServer(Remote, ...) )
 	local ORIG = Instance.new(Class)[Method]
-	local new_function = newcclosure(function(self, ...)
+	local new_function = protect_function(function(self, ...)
 		local Returns = {(ORIG or original_function)(self, ...)}
 		if typeof(self) == "Instance" and Methods[self.ClassName] == Method and not Settings.Blacklist[self.Name] and Settings.Enabled then
 			Write(self, {...}, Settings.ShowReturns and Returns)
@@ -138,27 +129,26 @@ for Class, Method in next, Methods do --// FireServer and InvokeServer hooking (
 		return unpack(Returns)
 	end)
 	Original[new_function] = ORIG
-	ORIG = hookfunction(ORIG, new_function)
+	ORIG = detour_function(ORIG, new_function)
 end
 
 do --// Namecall hooking ( Remote:FireServer(...) )
 	local ORIG = metatable.__namecall
-	local new_function = newcclosure(function(self, ...)
+	local new_function = protect_function(function(self, ...)
 		local Returns = {(ORIG or original_function)(self, ...)}
 		local Arguments = {...}
-		local Method = IsLuau and getnamecallmethod(self) or table.remove(Arguments)
+		local Method = get_namecall_method(self)
 		if typeof(Method) == "string" and Methods[self.ClassName] == Method and not Settings.Blacklist[self.Name] and Settings.Enabled then
 			Write(self, Arguments, Settings.ShowReturns and Returns)
 		end
 		return unpack(Returns)
 	end)
 	Original[new_function] = ORIG
-	setreadonly(metatable, false)
+	make_writeable(metatable, false)
 	metatable.__namecall = new_function
-	setreadonly(metatable, true)
+	make_writeable(metatable, true)
 end
 
-print("Lua U Enabled:", IsLuau)
 warn("Settings:")
 table.foreach(Settings, print)
 warn("----------------")
