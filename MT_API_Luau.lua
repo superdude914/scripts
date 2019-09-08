@@ -1,37 +1,15 @@
 if getgenv().MTAPIMutex ~= nil then
-	return
+	return 
 end
-local a = function()
-	if is_protosmasher_caller ~= nil then
-		return 0
-	end
-	if elysianexecute ~= nil then
-		return 1
-	end
-	if fullaccess ~= nil then
-		return 2
-	end
-	if Synapse ~= nil then
-		return 3
-	end
-	return 4
+local is_protosmasher_caller = is_protosmasher_caller or checkcaller
+local get_namecall_method = get_namecall_method or getnamecallmethod
+local protect_function = protect_function or newcclosure or function(...)
+	return ...
 end
-local a, b = a, function()
-	local c = a()
-	if c == 0 then
-		return is_protosmasher_caller
-	end
-	if c == 1 or c == 3 then
-		return checkcaller
-	end
-	if c == 2 then
-		return IsLevel7
-	end
-	return nil
-end
-if a() == 2 then
-	error("mt-api: Exploit not supported")
-end
+local type, assert = type, assert
+local metatable = getrawmetatable(game);
+(make_writeable or setreadonly or set_readonly)(metatable, false)
+
 local d = {}
 local e = {}
 local f = {}
@@ -40,302 +18,192 @@ local h = {}
 local i = {}
 local j = {}
 local k = {}
-a = a
-a = b
-a = d
-a = g
-a = j
-a = k
-a = e
-a = h
-a = f
-local a, l = i, function()
-	local deg = select(2, pcall(game)) == "attempt to call a userdata value"
-	local c = a()
-	local m = b()
-	local n = getrawmetatable(game)
-	if c == 0 then
-		make_writeable(n)
-	elseif c == 2 then
-		fullaccess(n)
-	else
-		setreadonly(n, false)
+local __index = metatable.__index
+local __newindex = metatable.__newindex
+local __namecall = metatable.__namecall
+metatable.__index = protect_function(function(self, index)
+	if not is_protosmasher_caller() then
+		if d[self] and d[self][index] then
+			local u = d[self][index]
+			return u.IsCallback and u.Value(self) or u.Value
+		end
+		if g[index] then
+			local v = g[index]
+			return v.IsCallback and v.Value(self) or v.Value
+		end
+		if j[self] and j[self][index] then 
+			return k[self][index]
+		end
 	end
-	local o = n.__index
-	local p = n.__newindex
-	local q = n.__namecall
-	c = m
-	c = o
-	c = d
-	c = g
-	c = j
-	c = k
-	n.__index = newcclosure(function(r, s)
-		if m() then
-			return o(r, s)
+	return __index(self, index)
+end)
+metatable.__newindex = protect_function(function(self, index, value)
+	if not is_protosmasher_caller() then
+		if e[self] and e[self][index] then
+			local z = e[self][index]
+			return z.Callback and z.Callback(self, value) or nil
+		end;
+		if h[index] then
+			local A = h[index]
+			return A.Callback and A.Callback(self, value) or nil
 		end
-		if d[r] and d[r][s] then
-			local t = d[r][s]
-			if t.IsCallback == true then
-				return t.Value(r)
-			else
-				return t.Value
+		if j[self] and j[self][index] then
+			local type = type(value)
+			local B = j[self][index]
+			if type ~= B["Type"] then
+				error("bad argument #3 to '".. index .."' ("..B["Type"].." expected, got ".. type ..")")
 			end
-		end
-		if g[s] then
-			local t = g[s]
-			if t.IsCallback == true then
-				return t.Value(r)
-			else
-				return t.Value
-			end
-		end
-		if j[r] and j[r][s] then
-			return k[r][s]
-		end
-		return o(r, s)
-	end)
-	c = m
-	c = p
-	c = e
-	c = h
-	c = j
-	c = k
-	n.__newindex = newcclosure(function(r, s, u)
-		if m() then
-			return p(r, s, u)
-		end
-		if e[r] and e[r][s] then
-			local t = e[r][s]
-			if t.Callback == nil then
-				return
-			else
-				t.Callback(r, u)
-				return
-			end
-		end
-		if h[s] then
-			local t = h[s]
-			if t.Callback == nil then
-				return
-			else
-				t.Callback(r, u)
-				return
-			end
-		end
-		if j[r] and j[r][s] then
-			local t = j[r][s]
-			if type(u) ~= t.Type then
-				error("bad argument #3 to '" .. s .. "' (" .. t.Type .. " expected, got " .. type(s) .. ")")
-			end
-			k[r][s] = u
+			k[self][index] = value
 			return
 		end
-		return p(r, s, u)
-	end)
-	c = m
-	c = d
-	c = g
-	c = e
-	c = h
-	c = f
-	c = i
-	c = o
-	c = j
-	c = k
-	c = q
-	n.__namecall = newcclosure(function(r, ...)
-		local v = {
-			...
-		}
-		local w = deg and getnamecallmethod() or table.remove(v)
-		if m() then
-			if w == "AddGetHook" then
-				if #v < 1 then
-					error("mt-api: Invalid argument count")
-				end
-				do
-					local x = v[1]
-					local u = v[2]
-					local y = v[3]
-					if type(x) ~= "string" then
-						error("mt-api: Invalid hook type")
-					end
-					if not d[r] then
-						d[r] = {}
-					end
-					if y == true and type(u) ~= "function" then
-						error("mt-api: Invalid callback function")
-					end
-					d[r][x] = {Value = u, IsCallback = y}
-					r = d
-					r = r
-					local r, z = x, function()
-						d[r][x] = nil
-					end
-					return {remove = z, Remove = z}
-				end
-			end
-			if w == "AddGlobalGetHook" then
-				do
-					local x = v[1]
-					local u = v[2]
-					local y = v[3]
-					if type(x) ~= "string" then
-						error("mt-api: Invalid hook type")
-					end
-					if y == true and type(u) ~= "function" then
-						error("mt-api: Invalid callback function")
-					end
-					g[x] = {Value = u, IsCallback = y}
-					r = g
-					local r, z = x, function()
-						g[x] = nil
-					end
-					return {remove = z, Remove = z}
-				end
-			end
-			if w == "AddSetHook" then
-				if #v < 1 then
-					error("mt-api: Invalid argument count")
-				end
-				do
-					local x = v[1]
-					local u = v[2]
-					if type(x) ~= "string" then
-						error("mt-api: Invalid hook type")
-					end
-					if not e[r] then
-						e[r] = {}
-					end
-					if type(u) == "function" then
-						e[r][x] = {Callback = u}
-					else
-						e[r][x] = {Callback = nil}
-					end
-					r = e
-					r = r
-					local r, z = x, function()
-						e[r][x] = nil
-					end
-					return {remove = z, Remove = z}
-				end
-			end
-			if w == "AddGlobalSetHook" then
-				if #v < 1 then
-					error("mt-api: Invalid argument count")
-				end
-				do
-					local x = v[1]
-					local u = v[2]
-					if type(x) ~= "string" then
-						error("mt-api: Invalid hook type")
-					end
-					if type(u) == "function" then
-						h[x] = {Callback = u}
-					else
-						h[x] = {Callback = nil}
-					end
-					r = h
-					local r, z = x, function()
-						h[x] = nil
-					end
-					return {remove = z, Remove = z}
-				end
-			end
-			if w == "AddCallHook" then
-				if #v < 2 then
-					error("mt-api: Invalid argument count")
-				end
-				do
-					local x = v[1]
-					local u = v[2]
-					if type(x) ~= "string" then
-						error("mt-api: Invalid hook type")
-					end
-					if type(u) ~= "function" then
-						error("mt-api: Invalid argument #2 (not function)")
-					end
-					if not f[r] then
-						f[r] = {}
-					end
-					f[r][x] = {Callback = u}
-					r = f
-					r = r
-					local r, z = x, function()
-						f[r][x] = nil
-					end
-					return {remove = z, Remove = z}
-				end
-			end
-			if w == "AddGlobalCallHook" then
-				if #v < 2 then
-					error("mt-api: Invalid argument count")
-				end
-				do
-					local x = v[1]
-					local u = v[2]
-					if type(x) ~= "string" then
-						error("mt-api: Invalid hook type")
-					end
-					if type(u) ~= "function" then
-						error("mt-api: Invalid argument #2 (not function)")
-					end
-					i[x] = {Callback = u}
-					r = i
-					local r, z = x, function()
-						i[x] = nil
-					end
-					return {remove = z, Remove = z}
-				end
-			end
-			if w == "AddPropertyEmulator" then
-				if #v < 1 then
-					error("mt-api: Invalid argument count")
-				end
-				do
-					local x = v[1]
-					if type(x) ~= "string" then
-						error("mt-api: Invalid hook type")
-					end
-					local u = o(r, x)
-					local A = type(u)
-					if not j[r] then
-						j[r] = {}
-					end
-					if not k[r] then
-						k[r] = {}
-					end
-					j[r][x] = {Type = A}
-					k[r][x] = o(r, x)
-					r = j
-					r = r
-					r = x
-					local r, z = k, function()
-						j[r][x] = nil
-						k[r][x] = nil
-					end
-					return {remove = z, Remove = z}
-				end
-			end
-			return v[1](r, ...)
-		end
-		if f[r] and f[r][w] then
-			local t = f[r][w]
-			return t.Callback(o(r, w), unpack(v))
-		end
-		if i[w] then
-			local t = i[w]
-			return t.Callback(r, o(r, w), unpack(v))
-		end
-		return q(r, ...)
-	end)
-	if c == 0 then
-		make_readonly(n)
-	elseif c == 2 then
-	else
-		setreadonly(n, true)
 	end
-end
-l()
+	return __newindex(self, index, value)
+end)
+metatable.__namecall = protect_function(function(self, ...)
+	local E = {...}
+	local F = get_namecall_method()
+	if is_protosmasher_caller() then
+		if F == "AddGetHook" then
+			assert(#E > 0, "mt-api: Invalid argument count")
+			local G = E[1]
+			local H = E[2]
+			local I = E[3]
+			assert(type(G) == "string", "mt-api: Invalid hook type")
+			d[self] = d[self] or {}
+			if I then
+				assert(type(H) == "function", "mt-api: Invalid callback function")
+			end
+			d[self][G] = {
+				Value = H,
+				IsCallback = I
+			}
+			local J = function()
+				d[self][G] = nil
+			end
+			return {
+				remove = J,
+				Remove = J
+			}
+		end
+		if F == "AddGlobalGetHook" then
+			local K = E[1]
+			local L = E[2]
+			local M = E[3]
+			assert(type(K) == "string", "mt-api: Invalid hook type")
+			if M then
+				assert(type(L) == "function", "mt-api: Invalid callback function")
+			end
+			g[K] = {
+				Value = L,
+				IsCallback = M
+			}
+			local N = function()
+				g[K] = nil
+			end;
+			return {
+				remove = N,
+				Remove = N
+			}
+		end
+		if F == "AddSetHook" then
+			assert(#E > 0, "mt-api: Invalid argument count")
+			local O = E[1]
+			local P = E[2]
+			assert(type(O) == "string", "mt-api: Invalid hook type")
+			e[self] = e[self] or {}
+			e[self][O] = {
+				Callback = type(P) == "function" and P or nil
+			}
+			local Q = function()
+				e[self][O] = nil
+			end
+			return {
+				remove = Q,
+				Remove = Q
+			}
+		end;
+		if F == "AddGlobalSetHook" then
+			assert(#E > 0, "mt-api: Invalid argument count")
+			local R = E[1]
+			local S = E[2]
+			assert(type(R) == "string", "mt-api: Invalid hook type")
+			h[R] = {
+				Callback = type(S) == "function" and S or nil
+			}
+			local T = function()
+				h[R] = nil
+			end
+			return {
+				remove = T,
+				Remove = T
+			}
+		end;
+		if F == "AddCallHook" then
+			assert(#E > 1, "mt-api: Invalid argument count")
+			local U = E[1]
+			local V = E[2]
+			assert(type(U) == "string", "mt-api: Invalid hook type")
+			assert(type(V) == "function", "mt-api: Invalid argument #2 (not function)")
+			f[self] = f[self] or {}
+			f[self][U] = {
+				Callback = V
+			}
+			local W = function()
+				f[self][U] = nil
+			end
+			return {
+				remove = W,
+				Remove = W
+			}
+		end;
+		if F == "AddGlobalCallHook" then
+			assert(#E > 1, "mt-api: Invalid argument count")
+			local X = E[1]
+			local Y = E[2]
+			assert(type(X) == "string", "mt-api: Invalid hook type")
+			assert(type(Y) == "function", "mt-api: Invalid argument #2 (not function)")
+			i[X] = {
+				Callback = Y
+			}
+			local Z = function()
+				i[X] = nil
+			end
+			return {
+				remove = Z,
+				Remove = Z
+			}
+		end;
+		if F == "AddPropertyEmulator" then
+			assert(#E > 0, "mt-api: Invalid argument count")
+			local _ = E[1]
+			assert(type(_) == "string", "mt-api: Invalid hook type")
+			local a0 = self[_]
+			j[self] = j[self] or {}
+			k[self] = k[self] or {}
+			j[self][_] = {
+				Type = type(a0)
+			}
+			k[self][_] = a0
+			local a2 = function()
+				j[self][_] = nil
+				k[self][_] = nil
+			end
+			return {
+				remove = a2,
+				Remove = a2
+			}
+		end
+		return __namecall(self, ...)
+	end
+	if f[self] and f[self][F] then
+		local a3 = f[self][F]
+		return a3["Callback"](self[F], unpack(E))
+	end
+	if i[F] then
+		local a4 = i[F]
+		return a4["Callback"](self, self[F], unpack(E))
+	end
+	return __namecall(self, ...)
+end)
+(make_readonly or setreadonly or set_readonly)(metatable, true)
 getgenv().MTAPIMutex = true
