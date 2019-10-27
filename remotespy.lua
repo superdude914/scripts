@@ -1,6 +1,6 @@
 --[[
 	Lua U Remote Spy written by chaserks (chaserks @ v3rmillion.net, superdude914#3441 @ Discord)
-	Exploits supported: Synapse X, ProtoSmasher (Sirhurt?, Elysian?)
+	Exploits supported: Synapse X (Sirhurt?, Elysian?)
 	Remote calls are printed to the dev console by default (F9 window)
 	To use Synapse's console, change Settings.Output to rconsoleprint
 ]]
@@ -49,10 +49,10 @@ local function Parse(Object) --// Convert the types into strings
 		return ("\"%s\""):format(Object)
 	elseif Type == "Instance" then --// Instance:GetFullName() except it's not handicapped
 		local Path = GetInstanceName(Object)
-		local Parent = metatable.__index(Object, "Parent")
+		local Parent = Object.Parent
 		while Parent and Parent ~= game do
 			Path = GetInstanceName(Parent) .. Path
-			Parent = metatable.__index(Parent, "Parent")
+			Parent = Parent.Parent
 		end
 		return (Object:IsDescendantOf(game) and "game" or "NIL") .. Path
 	elseif Type == "table" then
@@ -94,7 +94,7 @@ local Write = function(Remote, Arguments, Returns) --// Remote (Instance), Argum
 	Settings.Output(Stuff) --// Output the remote call
 	local _ = Settings.Copy and pcall(setclipboard, Stuff)
 	if Settings.ShowScript and not PROTOSMASHER_LOADED then
-		local Env = getfenv(3) --// ProtoSmasher HATES this line (detour_function breaks)
+		local Env = getfenv(3)
 		local Script = rawget(Env, "script")
 		if typeof(Script) == "Instance" then
 			Settings.Output(("Script: %s"):format(Parse(Script)))
@@ -116,7 +116,7 @@ do --// Anti detection for tostring ( tostring(FireServer, InvokeServer) )
 		end
 	end)
 	Original[new_function] = ORIG
-	ORIG = detour_function(ORIG, new_function, true)
+	ORIG = detour_function(ORIG, new_function)
 end
 
 for Class, Method in next, Methods do --// FireServer and InvokeServer hooking ( FireServer(Remote, ...) )
