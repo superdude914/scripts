@@ -1,9 +1,20 @@
 --[[
-	Lua U Remote Spy written by chaserks (chaserks @ v3rmillion.net, superdude914#3441 @ Discord)
+	Lua U Remote Spy written by chaserks (chaserks @ v3rmillion.net, Iterations#7976 @ Discord)
 	Exploits supported: Synapse X (Sirhurt?, Elysian?)
 	Remote calls are printed to the dev console by default (F9 window)
-	To use Synapse's console, change Settings.Output to rconsoleprint
+	To use Synapse's console, change Output to rconsoleprint
+	The Output function can't be saved, it's set to 'warn' by default
+	detour_function has been broken on ProtoSmasher so references to FireServer & InvokeServer are not hooked
+	(That prevents the remote spy from fully working on advanced games like Jailbreak)
 ]]
+
+local Output = warn --// Function used to output remote calls (Change to rconsoleprint to use Synapse's console)
+local CustomIgnoreFunction = function(Remote, Method, Arguments) --// If this returns true, then the remote call will not be displayed / recorded (You can edit this)
+	--return false // Uncomment this if you don't want to ignore any remote calls
+	if type(Arguments[1]) == "string" and type(Arguments[2]) == "number" and type(Arguments[3]) == "number" then
+		return true --// Ignores the Jailbreak remote that fires every half second. You can remove this code
+	end
+end
 
 _G.Settings = { --// You can change these settings
 	Enabled = true, --// Remote spy is enabled
@@ -13,13 +24,22 @@ _G.Settings = { --// You can change these settings
 	},
 	ShowScript = true, --// Print out the script that made the remote call (Unfunctional with ProtoSmasher)
 	ShowReturns = true, --// Display what the remote calls return
-	Output = warn --// Function used to output remote calls (Change to rconsoleprint to use Synapse's console)
+	Record = false, --// Save remote calls to a text file (Uses writefile every second to save performance)
+	TabCharacter = "    ", --// Character(s) to use between items in tables / tuples (The repetition of this character is calculated)
+	NewlineCharacter = "\n" --// Character(s) to use between items in tables / tuples
 }
 
 local metatable = getrawmetatable(game)
 
 --// Custom functions aliases
-local make_writeable = make_writeable or setreadonly or set_readonly
+
+local setreadonly = setreadonly or set_readonly
+local make_writeable = make_writeable or function(t)
+	setreadonly(t, false)
+end
+local make_readonly = make_readonly or function(t)
+	setreadonly(t, true)
+end
 local detour_function = detour_function or replace_closure or hookfunction
 local setclipboard = setclipboard or set_clipboard or writeclipboard
 local get_namecall_method = get_namecall_method or getnamecallmethod or function(o)
@@ -33,20 +53,39 @@ end
 
 local Original = {}
 local Settings = _G.Settings
+local Recorded = ""
 local Methods = {
 	RemoteEvent = "FireServer",
 	RemoteFunction = "InvokeServer"
 }
 
-local GetInstanceName = function(Object) --// Returns proper string wrapping for instances
-	local Name = Object.Name
-	return ((#Name == 0 or Name:match("[^%w]+") or Name:sub(1, 1):match("[^%a]")) and "[\"%s\"]" or ".%s"):format(Name)
+do --// Handle 'Output' Setting
+	Settings = setmetatable(Settings, {
+		__newindex = function(self, index, value)
+			if index == "Output" then
+				Output = value
+			elseif index == "CustomIgnoreFunction" or index == "IgnoreFunction" then
+				CustomIgnoreFunction = value
+			end
+		end
+	})
 end
 
-local function Parse(Object) --// Convert the types into strings
+local IsValidCall = function(Remote, Method, Arguments)
+	return (Methods[Remote.ClassName] == Method) and (not Settings.Blacklist[Remote.Name]) and (Settings.Enabled) and (not CustomIgnoreFunction(Remote, Method, Arguments))
+end
+
+local GetInstanceName = function(Object) --// Returns proper string wrapping for instances
+	local Name = Object.Parent == game and Object.ClassName or Object.Name
+	return (Object.Parent == game and ":GetService(\"%s\")" or (#Name == 0 or Name:match("[^%w]+") or Name:sub(1, 1):match("[^%a]")) and "[\"%s\"]" or ".%s"):format(Name)
+end
+
+local function Parse(Object, TabCount) --// Convert the types into strings
 	local Type = typeof(Object)
+	local ParsedResult = ""
+	local TabCount = TabCount or 0
 	if Type == "string" then
-		return ("\"%s\""):format(Object)
+		ParsedResult = ("\"%s\""):format(Object)
 	elseif Type == "Instance" then --// Instance:GetFullName() except it's not handicapped
 		local Path = GetInstanceName(Object)
 		local Parent = Object.Parent
@@ -54,55 +93,64 @@ local function Parse(Object) --// Convert the types into strings
 			Path = GetInstanceName(Parent) .. Path
 			Parent = Parent.Parent
 		end
-		return (Object:IsDescendantOf(game) and "game" or "NIL") .. Path
+		ParsedResult = (Object:IsDescendantOf(game) and "game" or "NIL") .. Path
 	elseif Type == "table" then
 		local Str = ""
 		local Counter = 0
+		TabCount = TabCount + 1
 		for Idx, Obj in next, Object do
 			Counter = Counter + 1
-			local Obj = Obj ~= Object and Parse(Obj) or "THIS_TABLE"
+			Obj = Obj == Object and "THIS_TABLE" or Parse(Obj, TabCount)
+			local TabCharacter = (Counter > 1 and "," or "") .. Settings.NewlineCharacter .. Settings.TabCharacter:rep(TabCount)
 			if Counter ~= Idx then
-				Str = Str .. ("[%s] = %s, "):format(Idx ~= Object and Parse(Idx) or "THIS_TABLE", Obj) --maybe
+				Str = Str .. ("%s[%s] = %s"):format(TabCharacter, Idx ~= Object and Parse(Idx, TabCount) or "THIS_TABLE", Obj)	 --maybe
 			else
-				Str = Str .. ("%s, "):format(Obj)
+				Str = Str .. ("%s%s"):format(TabCharacter, Obj)
 			end
 		end
-		return ("{%s}"):format(Str:sub(1, -3))
-	elseif Type == "CFrame" or Type == "Vector3" or Type == "Vector2" or Type == "UDim2" or Type == "Color3" or Type == "Vector3int16" then
-		return ("%s.%s(%s)"):format(Type, Type == "Color3" and "fromRGB" or "new", tostring(Object))
+		TabCount = TabCount - 1
+		ParsedResult = ("{%s}"):format(Str .. (#Str > 0 and Settings.NewlineCharacter .. Settings.TabCharacter:rep(TabCount) or ""))
+	elseif Type == "CFrame" or Type == "Vector3" or Type == "Vector2" or Type == "UDim2" or Type == "Color3" or Type == "Vector3int16" or Type == "UDim" or Type == "Vector2int16" then
+		ParsedResult = ("%s.%s(%s)"):format(Type, Type == "Color3" and "fromRGB" or "new", tostring(Object))
 	elseif Type == "userdata" then --// Remove __tostring fields to counter traps
 		local Result
 		local Metatable = getrawmetatable(Object)
 		local __tostring = Metatable and Metatable.__tostring
 		if __tostring then
-			make_writeable(Metatable, false)
+			make_writeable(Metatable)
 			Metatable.__tostring = nil
 			Result = tostring(Object)
 			rawset(Metatable, "__tostring", __tostring)
-			make_writeable(Metatable, rawget(Metatable, "__metatable") ~= nil)
+			if rawget(Metatable, "__metatable") ~= nil then
+				make_readonly(Metatable)
+			end
 		else
 			Result = tostring(Object)
 		end
-		return Result
+		ParsedResult = Parse(Result, TabCount)
 	else
-		return tostring(Object)
+		ParsedResult = tostring(Object)
 	end
+	return ParsedResult
 end
 
-local Write = function(Remote, Arguments, Returns) --// Remote (Instance), Arguments (Table), Returns (Table)
-	local Stuff = ("%s:%s(%s)\r\n"):format(Parse(Remote), Methods[metatable.__index(Remote, "ClassName")], Parse(Arguments):sub(2, -2))
-	Settings.Output(Stuff) --// Output the remote call
+local Write = function(Remote, Method, Arguments, Returns) --// Remote (Instance), Arguments (Table), Returns (Table)
+	local Stuff = ("\n\n%s:%s(%s)"):format(Parse(Remote), Method, Parse(Arguments):sub(2, -2))
 	local _ = Settings.Copy and pcall(setclipboard, Stuff)
 	if Settings.ShowScript and not PROTOSMASHER_LOADED then
 		local Env = getfenv(3)
 		local Script = rawget(Env, "script")
 		if typeof(Script) == "Instance" then
-			Settings.Output(("Script: %s"):format(Parse(Script)))
+			Stuff = Stuff .. ("\nScript: %s"):format(Parse(Script))
 		end
 	end
-	if Returns and #Returns > 0 then
-		Settings.Output(("Returned: %s"):format(Parse(Returns):sub(2, -2)))
+	if Returns and #Returns > 0 then	
+		Stuff = Stuff .. ("\nReturned: %s"):format(Parse(Returns):sub(2, -2))
 	end
+	if Settings.Record then
+		Recorded = Recorded .. Stuff
+	end
+	Output(Stuff) --// Output the remote call
 end
 
 do --// Anti detection for tostring ( tostring(FireServer, InvokeServer) )
@@ -122,9 +170,10 @@ end
 for Class, Method in next, Methods do --// FireServer and InvokeServer hooking ( FireServer(Remote, ...) )
 	local ORIG = Instance.new(Class)[Method]
 	local new_function = protect_function(function(self, ...)
-		local Returns = {(ORIG or original_function)(self, ...)}
-		if typeof(self) == "Instance" and Methods[self.ClassName] == Method and not Settings.Blacklist[self.Name] and Settings.Enabled then
-			Write(self, {...}, Settings.ShowReturns and Returns)
+		local Arguments = {...}
+		local Returns = {(original_function or ORIG)(self, ...)}
+		if typeof(self) == "Instance" and IsValidCall(self, Method, Arguments) then
+			Write(self, Method, Arguments, Settings.ShowReturns and Returns)
 		end
 		return unpack(Returns)
 	end)
@@ -135,20 +184,51 @@ end
 do --// Namecall hooking ( Remote:FireServer(...) )
 	local ORIG = metatable.__namecall
 	local new_function = protect_function(function(self, ...)
-		local Returns = {(ORIG or original_function)(self, ...)}
 		local Arguments = {...}
+		local Returns = {(original_function or ORIG)(self, ...)}
 		local Method = get_namecall_method(self)
-		if typeof(Method) == "string" and Methods[self.ClassName] == Method and not Settings.Blacklist[self.Name] and Settings.Enabled then
-			Write(self, Arguments, Settings.ShowReturns and Returns)
+		if typeof(Method) == "string" and IsValidCall(self, Method, Arguments) then
+			Write(self, Method, Arguments, Settings.ShowReturns and Returns)
 		end
 		return unpack(Returns)
 	end)
 	Original[new_function] = ORIG
-	make_writeable(metatable, false)
+	make_writeable(metatable)
 	metatable.__namecall = new_function
-	make_writeable(metatable, true)
+	make_readonly(metatable)
 end
 
-warn("Settings:")
-table.foreach(Settings, print)
-warn("----------------")
+do --// Save remote calls and settings to their files
+	local Folder = "RemoteSpy files"
+	if makefolder == nil then
+		Folder = ""
+	else
+		Folder = Folder .. "\\"
+		makefolder(Folder)
+	end
+	local HttpService = game:GetService("HttpService")
+	local GotSettingsJSON, LastSettingsJSON = pcall(readfile, Folder .. "RemoteSpySettings.json")
+	if GotSettingsJSON then
+		local GotSettings, LoadedSettings = pcall(HttpService.JSONDecode, HttpService, LoadedSettingsJSON)
+		if GotSettings then
+			Settings = LoadedSettings
+			Output("Loaded settings from file")
+		else
+			Output("Could get saved settings file, but couldn't decode from JSON")
+		end
+	else
+		Output("Couldn't get saved settings file")
+	end
+	Output("Settings: " .. Parse(Settings) .. "\n---------------------")
+	while wait(1) do
+		if #Recorded > 0 then
+			pcall(appendfile, Folder .. "RemoteSpyRecords.txt", Recorded)
+			Recorded = ""
+		end
+		local SettingsJSON = HttpService:JSONEncode(Settings)
+		if SettingsJSON ~= LastSettingsJSON then
+			pcall(writefile, Folder .. "RemoteSpySettings.json", SettingsJSON)
+			LastSettingsJSON = SettingsJSON
+		end
+	end
+end
