@@ -4,13 +4,11 @@
 	Remote calls are printed to the dev console by default (F9 window)
 	To use Synapse's console, change Output to rconsoleprint
 	The Output function can't be saved, it's set to 'warn' by default
-	detour_function has been broken on ProtoSmasher so references to FireServer & InvokeServer are not hooked
-	(That prevents the remote spy from fully working on advanced games like Jailbreak)
 ]]
 
 local Output = warn --// Function used to output remote calls (Change to rconsoleprint to use Synapse's console)
 local CustomIgnoreFunction = function(Remote, Method, Arguments) --// If this returns true, then the remote call will not be displayed / recorded (You can edit this)
-	--return false // Uncomment this if you don't want to ignore any remote calls
+	--return false --// Uncomment this if you don't want to ignore any remote calls
 	if type(Arguments[1]) == "string" and type(Arguments[2]) == "number" and type(Arguments[3]) == "number" then
 		return true --// Ignores the Jailbreak remote that fires every half second. You can remove this code
 	end
@@ -76,8 +74,9 @@ local IsValidCall = function(Remote, Method, Arguments)
 end
 
 local GetInstanceName = function(Object) --// Returns proper string wrapping for instances
-	local Name = Object.Parent == game and Object.ClassName or Object.Name
-	return (Object.Parent == game and ":GetService(\"%s\")" or (#Name == 0 or Name:match("[^%w]+") or Name:sub(1, 1):match("[^%a]")) and "[\"%s\"]" or ".%s"):format(Name)
+	local IsService = Object.Parent == game
+	local Name = IsService and Object.ClassName or Object.Name
+	return (IsService and ":GetService(\"%s\")" or (#Name == 0 or Name:match("[^%w]+") or Name:sub(1, 1):match("[^%a]")) and "[\"%s\"]" or ".%s"):format(Name)
 end
 
 local function Parse(Object, TabCount) --// Convert the types into strings
@@ -128,14 +127,33 @@ local function Parse(Object, TabCount) --// Convert the types into strings
 			Result = tostring(Object)
 		end
 		ParsedResult = Parse(Result, TabCount)
+	elseif Type == "function" then
+		return (
+		[[(function()
+			for Idx, Value in next, %s() do
+				if type(Value) == "function" and tostring(Value) == "%s" then
+					return Value
+				end
+			end
+		end)()]]
+		):gsub(
+			"\n", 
+			Settings.NewlineCharacter
+		):gsub(
+			"\t", 
+			Settings.TabCharacter:rep(TabCount)
+		):format(
+			getgc and "getgc" or get_gc_objects and "get_gc_objects" or "debug.getregistry", 
+			tostring(Object)
+		)
 	else
 		ParsedResult = tostring(Object)
 	end
 	return ParsedResult
 end
 
-local Write = function(Remote, Method, Arguments, Returns) --// Remote (Instance), Arguments (Table), Returns (Table)
-	local Stuff = ("\n\n%s:%s(%s)"):format(Parse(Remote), Method, Parse(Arguments):sub(2, -2))
+local Write = function(Remote, Method, Arguments, Returns) --// Remote (Multiple types), Arguments (Table), Returns (Table)
+	local Stuff = ("\n\n%s:%s(%s)"):format(typeof(Remote) == "Instance" and Parse(Remote) or ("(%s)"):format(Parse(Remote)), Method, Parse(Arguments):sub(2, -2))
 	local _ = Settings.Copy and pcall(setclipboard, Stuff)
 	if Settings.ShowScript and not PROTOSMASHER_LOADED then
 		local Env = getfenv(3)
@@ -153,10 +171,46 @@ local Write = function(Remote, Method, Arguments, Returns) --// Remote (Instance
 	Output(Stuff) --// Output the remote call
 end
 
+local CustomGamesSpy = {
+	[606849621] = function() --// Jailbreak's custom FireServer
+		local Script = game:GetService("Players").LocalPlayer.PlayerScripts.LocalScript
+		local RemoteTable
+		for Idx, Value in next, debug.getregistry() do
+			if type(Value) == "function" and getfenv(Value).script == Script then
+				for UpvalIdx, Upval in next, debug.getupvalues(Value) do
+					if type(Upval) == "table" and rawget(Upval, "FireServer") then
+						RemoteTable = Upval
+						break
+					end
+				end
+				if RemoteTable ~= nil then
+					break
+				end
+			end
+		end
+		assert(RemoteTable ~= "nil", "Remote not found")
+		local ORIG = debug.getupvalues(RemoteTable.FireServer)[1]
+		RemoteTable = setmetatable({
+			FireServer = RemoteTable.FireServer
+		}, {
+			__index = {
+				ClassName = "RemoteEvent"
+			}
+		})
+		local new_function = function(...)
+			local Arguments = {...}
+			if IsValidCall(RemoteTable, "FireServer", Arguments) then
+				Write(RemoteTable, "FireServer", Arguments, {ORIG(...)})
+			end
+		end
+		debug.setupvalue(RemoteTable.FireServer, 1, new_function)
+	end
+}
+
 do --// Anti detection for tostring ( tostring(FireServer, InvokeServer) )
 	local ORIG = tostring
 	local new_function = protect_function(function(obj)
-		local Success, Result = pcall(ORIG or original_function, Original[obj] or obj)
+		local Success, Result = pcall(original_function or ORIG, Original[obj] or obj)
 		if Success then
 			return Result
 		else
@@ -167,18 +221,25 @@ do --// Anti detection for tostring ( tostring(FireServer, InvokeServer) )
 	ORIG = detour_function(ORIG, new_function)
 end
 
-for Class, Method in next, Methods do --// FireServer and InvokeServer hooking ( FireServer(Remote, ...) )
-	local ORIG = Instance.new(Class)[Method]
-	local new_function = protect_function(function(self, ...)
-		local Arguments = {...}
-		local Returns = {(original_function or ORIG)(self, ...)}
-		if typeof(self) == "Instance" and IsValidCall(self, Method, Arguments) then
-			Write(self, Method, Arguments, Settings.ShowReturns and Returns)
+do --// Function hooks
+	local CustomSpy = CustomGamesSpy[game.PlaceId]
+	if CustomSpy then
+		CustomSpy()
+	else
+		for Class, Method in next, Methods do --// FireServer and InvokeServer hooking ( FireServer(Remote, ...) )
+			local ORIG = Instance.new(Class)[Method]
+			local new_function = protect_function(function(self, ...)
+				local Arguments = {...}
+				local Returns = {(original_function or ORIG)(self, ...)}
+				if typeof(self) == "Instance" and IsValidCall(self, Method, Arguments) then
+					Write(self, Method, Arguments, Settings.ShowReturns and Returns)
+				end
+				return unpack(Returns)
+			end)
+			Original[new_function] = ORIG
+			ORIG = detour_function(ORIG, new_function)
 		end
-		return unpack(Returns)
-	end)
-	Original[new_function] = ORIG
-	ORIG = detour_function(ORIG, new_function)
+	end
 end
 
 do --// Namecall hooking ( Remote:FireServer(...) )
@@ -209,7 +270,7 @@ do --// Save remote calls and settings to their files
 	local HttpService = game:GetService("HttpService")
 	local GotSettingsJSON, LastSettingsJSON = pcall(readfile, Folder .. "RemoteSpySettings.json")
 	if GotSettingsJSON then
-		local GotSettings, LoadedSettings = pcall(HttpService.JSONDecode, HttpService, LoadedSettingsJSON)
+		local GotSettings, LoadedSettings = pcall(HttpService.JSONDecode, HttpService, LastSettingsJSON)
 		if GotSettings then
 			Settings = LoadedSettings
 			Output("Loaded settings from file")
