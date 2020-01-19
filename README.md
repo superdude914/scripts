@@ -1,2 +1,2 @@
 # scripts
-scripts I make for roblox related stuff
+This repository consists of Roblox-related scripts.
