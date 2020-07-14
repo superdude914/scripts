@@ -1,5 +1,5 @@
 --[[
-	Lua U Remote Spy written by TheExtreme (SwiftlyLoathe @ v3rmillion.net, TheExtreme#6073 @ Discord)
+	Lua U Remote Spy written by TheExtreme (TheExtreme#6073 @ Discord)
 	This remote spy has no user interface, settings are changed via _G (Look at line 15 for them)
 	If you are an experienced scripter, you may add a user interface yourself and simply make your own Output function
 	Remote calls are printed to the dev console by default (F9 window)
@@ -38,13 +38,10 @@ local make_readonly = make_readonly or function(t)
 end
 local detour_function = detour_function or replace_closure or hookfunction
 local setclipboard = setclipboard or set_clipboard or writeclipboard
-local get_namecall_method = get_namecall_method or getnamecallmethod or function(o)
-	return typeof(o) == "Instance" and Methods[o.ClassName] or nil
-end
-local protect_function = protect_function or newcclosure or function(...)
+local get_namecall_method = get_namecall_method or getnamecallmethod
+local protect_function = protect_function or newcclosureyield or newcclosure or function(...)
 	return ...
 end
-
 --// \\--
 
 local Original = {}
@@ -68,14 +65,17 @@ do --// Handle 'Output' Setting
 	})
 end
 
-local IsValidCall = function(Remote, Method, Arguments)
+local function IsValidCall(Remote, Method, Arguments)
 	return Settings.Enabled and (Methods[Remote.ClassName] == Method) and not (Settings.Blacklist[Remote.Name] or CustomIgnoreFunction(Remote, Method, Arguments))
 end
 
-local GetInstanceName = function(Object) --// Returns proper string wrapping for instances
+local function GetInstanceName(Object) --// Returns proper string wrapping for instances
+	if Object == nil then
+		return ".NIL"
+	end
 	local IsService = Object.Parent == game
 	local Name = IsService and Object.ClassName or Object.Name
-	return (IsService and ":GetService(\"%s\")" or (#Name == 0 or Name:match("[^%w]+") or Name:sub(1, 1):match("[^%a]")) and "[\"%s\"]" or ".%s"):format(Name)
+	return (Object ~= game and GetInstanceName(Object.Parent) or "") .. (IsService and ":GetService(\"%s\")" or (#Name == 0 or Name:match("[^%w]+") or Name:sub(1, 1):match("[^%a]")) and "[\"%s\"]" or ".%s"):format(Name)
 end
 
 local function Find(Table, Object, LastIndex)
@@ -96,20 +96,12 @@ local renv = getrenv()
 
 local function Parse(Object, TabCount) --// Convert the types into strings
 	local Type = typeof(Object)
-	local ParsedResult = Find(renv, Object)
+	local ParsedResult
 	local TabCount = TabCount or 0
-	if ParsedResult and Type == "function" then
-		return ParsedResult
-	elseif Type == "string" then
+	if Type == "string" then
 		ParsedResult = ("\"%s\""):format(Object)
-	elseif Type == "Instance" then --// Instance:GetFullName() except it's not handicapped
-		local Path = GetInstanceName(Object)
-		local Parent = Object.Parent
-		while Parent and Parent ~= game do
-			Path = GetInstanceName(Parent) .. Path
-			Parent = Parent.Parent
-		end
-		ParsedResult = (Object:IsDescendantOf(game) and "game" or "NIL") .. Path
+	elseif Type == "Instance" then --// GetFullName except it's not handicapped
+		ParsedResult = GetInstanceName(Object):sub(2)
 	elseif Type == "table" then
 		local Str = ""
 		local Counter = 0
@@ -131,21 +123,20 @@ local function Parse(Object, TabCount) --// Convert the types into strings
 	elseif Type == "userdata" then --// Remove __tostring fields to counter traps
 		local Result
 		local Metatable = getrawmetatable(Object)
-		local __tostring = Metatable and Metatable.__tostring
+		local __tostring = Metatable and rawget(Metatable, "__tostring")
 		if __tostring then
 			make_writeable(Metatable)
 			Metatable.__tostring = nil
-			Result = tostring(Object)
+			ParsedResult = tostring(Object)
 			rawset(Metatable, "__tostring", __tostring)
 			if rawget(Metatable, "__metatable") ~= nil then
 				make_readonly(Metatable)
 			end
 		else
-			Result = tostring(Object)
+			ParsedResult = tostring(Object)
 		end
-		ParsedResult = Parse(Result, TabCount)
 	elseif Type == "function" then
-		ParsedResult = (
+		ParsedResult = Find(renv, Object) or (
 		[[(function()
 			for Idx, Value in next, %s() do
 				if type(Value) == "function" and tostring(Value) == "%s" then
@@ -169,23 +160,21 @@ local function Parse(Object, TabCount) --// Convert the types into strings
 	return ParsedResult
 end
 
-local Write = function(Remote, Method, Arguments, Returns) --// Remote (Multiple types), Arguments (Table), Returns (Table)
+local function Write(Remote, Method, Arguments) --// Remote (Multiple types), Arguments (Table)
 	local Stuff = ("\n\n%s:%s(%s)"):format(typeof(Remote) == "Instance" and Parse(Remote) or ("(%s)"):format(Parse(Remote)), Method, Parse(Arguments):sub(2, -2))
 	if Settings.Copy then
 		pcall(setclipboard, Stuff)
 	end
-	if Settings.ShowScript then
+	if Settings.ShowScript and not PROTOSMASHER_LOADED then
 		local Script = getcallingscript and getcallingscript() or rawget(getfenv(2), "script")
 		if typeof(Script) == "Instance" then
 			Stuff = Stuff .. ("\nScript: %s"):format(Parse(Script))
 		end
 	end
-	if Returns then	
-		Stuff = Stuff .. ("\nReturned: %s"):format(Parse(Returns):sub(2, -2))
-	end
 	if Settings.Record then
 		Recorded = Recorded .. Stuff
 	end
+	Output("-- REMOTE CALLED! --")
 	Output(Stuff) --// Output the remote call
 end
 
@@ -218,25 +207,26 @@ local CustomGamesSpy = {
 		local new_function = function(...)
 			local Arguments = {...}
 			if IsValidCall(RemoteTable, "FireServer", Arguments) then
-				Write(RemoteTable, "FireServer", Arguments, {ORIG(...)})
+				Write(RemoteTable, "FireServer", Arguments)
 			end
+			return ORIG(...)
 		end
 		debug.setupvalue(RemoteTable.FireServer, 1, new_function)
 	end
 }
 
 do --// Anti detection for tostring ( tostring(FireServer, InvokeServer) )
-	local ORIG = tostring
-	local new_function = protect_function(function(obj)
-		local Success, Result = pcall(original_function or ORIG, Original[obj] or obj)
+	local original_function = tostring
+	local new_function = function(obj)
+		local Success, Result = pcall(original_function, Original[obj] or obj)
 		if Success then
 			return Result
 		else
 			error(Result:gsub(script.Name .. ":%d+: ", ""))
 		end
-	end)
-	Original[new_function] = ORIG
-	ORIG = detour_function(ORIG, new_function)
+	end
+	original_function = detour_function(original_function, new_function)
+	Original[new_function] = original_function
 end
 
 do --// Function hooks
@@ -245,38 +235,42 @@ do --// Function hooks
 		CustomSpy()
 	else
 		for Class, Method in next, Methods do --// FireServer and InvokeServer hooking ( FireServer(Remote, ...) )
-			local ORIG = Instance.new(Class)[Method]
-			local new_function = protect_function(function(self, ...)
+			local original_function = Instance.new(Class)[Method]
+			local function new_function(self, ...)
 				local Arguments = {...}
-				local Returns = {(original_function or ORIG)(self, ...)}
 				if typeof(self) == "Instance" and IsValidCall(self, Method, Arguments) then
-					Write(self, Method, Arguments, Settings.ShowReturns and Returns)
+					Write(self, Method, Arguments)
 				end
-				return unpack(Returns)
-			end)
-			Original[new_function] = ORIG
-			ORIG = detour_function(ORIG, new_function)
-			print("Hooked", Methods)
+				return original_function(self, ...)
+			end
+			new_function = protect_function(new_function)
+			original_function = detour_function(original_function, new_function)
+			Original[new_function] = original_function
+			print("Hooked", Method)
 		end
 	end
 end
 
 do --// Namecall hooking ( Remote:FireServer(...) )
-	local ORIG = metatable.__namecall
-	local new_function = protect_function(function(self, ...)
-		local Arguments = {...}
-		local Returns = {(original_function or ORIG)(self, ...)}
-		local Method = get_namecall_method(self)
-		if typeof(Method) == "string" and IsValidCall(self, Method, Arguments) then
-			Write(self, Method, Arguments, Settings.ShowReturns and Returns)
+	if get_namecall_method then
+		local __namecall = metatable.__namecall
+		local function new_function(self, ...)
+			local Arguments = {...}
+			local Method = get_namecall_method()
+			if typeof(Method) == "string" and IsValidCall(self, Method, Arguments) then
+				Write(self, Method, Arguments)
+			end
+			return __namecall(self, ...)
 		end
-		return unpack(Returns)
-	end)
-	Original[new_function] = ORIG
-	make_writeable(metatable)
-	metatable.__namecall = new_function
-	make_readonly(metatable)
-	print("Hooked namecall")
+		new_function = protect_function(new_function)
+		make_writeable(metatable)
+		metatable.__namecall = new_function
+		make_readonly(metatable)
+		Original[new_function] = __namecall
+		print("Hooked namecall")
+	else
+		warn("Couldn't hook namecall because exploit doesn't support 'getnamecallmethod'")
+	end
 end
 
 do --// Save remote calls and settings to their files
